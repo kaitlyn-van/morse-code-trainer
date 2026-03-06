@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "morse_lookup.h"
+#include "word_bank.h"
 // PURPOSE: this code file will implement the morse code trainer game with Arduino
 
 // declaring global variables
@@ -19,6 +20,18 @@ char letterBuf[8];
 int letterLen = 0;
 char symbol;
 
+// game level constraints
+const int beginner = 0;
+const int medium = 1;
+const int hard = 2;
+int currentLevel = beginner; // currentLevel will change as player progresses
+const char* targetWord = nullptr; // word player is currently trying to enter
+char typedWord[6];
+int typedLen = 0; // word length counter
+int beginnerPos = 0;
+int mediumPos = 0;
+int hardPos = 0;
+
 void setup() {
     Serial.begin(115200); // initialize serial
     
@@ -26,6 +39,10 @@ void setup() {
     letterLen = 0;
     letterBuf[0] = '\0';
     lastRelease = 0;
+
+    // game buffers
+    typedLen = 0;
+    typedWord[0] = '\0';
 
     noInterrupts(); // disable interrupts during setup
     
@@ -57,15 +74,6 @@ ISR(TIMER2_COMPA_vect) {
 }
 
 void loop() {
-    /*
-    // testing interrupts and counter
-    static uint32_t last = 0;
-    if(tickCount - last >= 1000){
-        Serial.println(tickCount);
-        last += 1000;
-    }
-    */
-
     // read current button state
     buttonState = digitalRead(buttonPin);
 
