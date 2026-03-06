@@ -28,9 +28,25 @@ int currentLevel = beginner; // currentLevel will change as player progresses
 const char* targetWord = nullptr; // word player is currently trying to enter
 char typedWord[6];
 int typedLen = 0; // word length counter
+// position counters
 int beginnerPos = 0;
 int mediumPos = 0;
 int hardPos = 0;
+// order arrays sized by their word banks
+int beginnerOrder[beginnerCount];
+int mediumOrder[mediumCount];
+int hardOrder[hardCount];
+int correctCount = 0;
+
+// shuffle helper function
+void shuffleOrder(int order[], int count){
+    for(int i = count - 1; i > 0; i--){
+        int j = random(0, i+1);
+        int temp = order[i];
+        order[i] = order[j];
+        order[j] = temp;
+    }
+}
 
 void setup() {
     Serial.begin(115200); // initialize serial
@@ -43,6 +59,28 @@ void setup() {
     // game buffers
     typedLen = 0;
     typedWord[0] = '\0';
+
+    // fill order arrays
+    for(int i = 0; i < beginnerCount; i++){
+        beginnerOrder[i] = i;
+    }
+    for(int i = 0; i < mediumCount; i++){
+        mediumOrder[i] = i;
+    }
+    for(int i = 0; i < hardCount; i++){
+        hardOrder[i] = i;
+    }
+
+    // shuffle order arrays
+    shuffleOrder(beginnerOrder, beginnerCount);
+    shuffleOrder(mediumOrder, mediumCount);
+    shuffleOrder(hardOrder, hardCount);
+
+    targetWord = beginnerWords[beginnerOrder[beginnerPos]];
+    beginnerPos++;
+
+    Serial.print("Target word: ");
+    Serial.println(targetWord);
 
     noInterrupts(); // disable interrupts during setup
     
