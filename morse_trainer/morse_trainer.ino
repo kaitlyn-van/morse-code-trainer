@@ -9,7 +9,8 @@ uint32_t pressStart;
 uint32_t duration;
 uint32_t lastRelease;
 uint32_t lastEdgeTime = 0; 
-const int buttonPin = 4;
+//const int buttonPin = 4;
+const int buttonPin = 2;
 const int dotDashThreshold = 200; // 200 ms
 const int gapThreshold = 800; // 800 ms
 const uint32_t debounceMs = 30;
@@ -60,6 +61,7 @@ void setup() {
     typedLen = 0;
     typedWord[0] = '\0';
 
+    /*
     // fill order arrays
     for(int i = 0; i < beginnerCount; i++){
         beginnerOrder[i] = i;
@@ -81,6 +83,7 @@ void setup() {
 
     Serial.print("Target word: ");
     Serial.println(targetWord);
+    */
 
     noInterrupts(); // disable interrupts during setup
     
