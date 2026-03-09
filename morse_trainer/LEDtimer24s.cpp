@@ -1,13 +1,13 @@
- const int LED1 = 10;   // turns off at 8s
-  const int LED2 = 11;   // turns off at 16s
-  const int LED3 = 12;   // turns off at 24s
+  const int LED1 = 11;   // turns off at 8s
+  const int LED2 = 10;   // turns off at 16s
+  const int LED3 = 9;   // turns off at 24s
   const int correct = 2; // interrupt pin 
   const int skip = 3; //skip button pin (interrupt)
 
   const unsigned long time_LED     = 8000;  // 8 seconds per LED
   const unsigned long time_out = 2000;  // keep all LEDs OFF for 2s if user fails
 
-  pinMode(skip, INPUT_PULLUP);
+  pinMode(skip, INPUT);
   attachInterrupt(digitalPinToInterrupt(skip), skipISR, FALLING);
 
   // Interrupt 
