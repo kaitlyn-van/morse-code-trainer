@@ -1,7 +1,7 @@
 //TIMER DEFINITIONS
 const int LED1 = 12;        // turns off at 8s
 const int LED2 = 11;        // turns off at 16s
-const int LED3 = 10;         // turns off at 24s
+const int LED3 = 10;        // turns off at 24s
 const int morse = 13;       // morse code input button
 const int reset_game = 2;   // interrupt pin
 const int skip = 3;         // interrupt pin
@@ -18,10 +18,16 @@ const int POINT2 = 8;
 const int POINT3 = 9; 
 int pointcount = 0;
 
+//game over definitions
+bool gameOverActive = false;
+unsigned long lastFlashMs = 0;
+bool flashState = false;
+const unsigned long flashInterval = 300;   // ms
+
 bool timerStarted = false;
 
 const unsigned long time_LED = 8000;   // 8 seconds per LED
-const unsigned long time_out = 2000;   // keep all LEDs OFF for 2s if user fails
+const unsigned long time_out = 1000;   // keep all LEDs OFF for 1s if user fails
 
 // Interrupt flags
 volatile bool resetGamePressed = false;
@@ -33,7 +39,7 @@ Phase phase = RUNNING;
 
 unsigned long phaseStartMs = 0;   // start time of current phase
 
-void setAllLeds(bool on) {
+void setTimerLEDs(bool on) {
   if (on) {
     digitalWrite(LED1, HIGH);
     digitalWrite(LED2, HIGH);
@@ -45,10 +51,36 @@ void setAllLeds(bool on) {
   }
 }
 
+void setLivesLEDs(bool on)
+{
+  if (on) {
+    digitalWrite(LIFE1, HIGH);
+    digitalWrite(LIFE2, HIGH);
+    digitalWrite(LIFE3, HIGH);
+  } else {
+    digitalWrite(LIFE1, LOW);
+    digitalWrite(LIFE2, LOW);
+    digitalWrite(LIFE3, LOW);
+  }
+}
+
+void setPointLEDs(bool on)
+{
+  if (on) {
+    digitalWrite(POINT1, HIGH);
+    digitalWrite(POINT2, HIGH);
+    digitalWrite(POINT3, HIGH);
+  } else {
+    digitalWrite(POINT1, LOW);
+    digitalWrite(POINT2, LOW);
+    digitalWrite(POINT3, LOW);
+  }
+}
+
 void resetGameTimer() {
   phase = RUNNING;
   phaseStartMs = millis();
-  setAllLeds(true);
+  setTimerLEDs(true);
 }
 
 // ISR for pin 2
@@ -59,6 +91,29 @@ void resetGameISR() {
 // ISR for pin 3
 void skipISR() {
   skipPressed = true;
+}
+
+void gameOver()
+{
+  gameOverActive = true;
+  flashState = true;
+  phase = FAIL;
+  resetGameTimer();
+  setTimerLEDs(false);
+  setLivesLEDs(true);
+  setPointLEDs(true);
+}
+
+void handleGameOverFlash() {
+  unsigned long now = millis();
+
+  if (now - lastFlashMs >= flashInterval) {
+    lastFlashMs = now;
+    flashState = !flashState;
+    setTimerLEDs(flashState);
+    setLivesLEDs(flashState);
+    setPointLEDs(flashState);
+  }
 }
 
 void updateLives() 
@@ -82,9 +137,31 @@ void updateLives()
   }
 
   else {
-    digitalWrite(LIFE1, LOW);
-    digitalWrite(LIFE2, LOW);
-    digitalWrite(LIFE3, LOW);
+    gameOver();
+  }
+}
+
+void updatePoints()
+{
+  if (pointcount >= 3) {
+    digitalWrite(POINT1, HIGH);
+    digitalWrite(POINT2, HIGH);
+    digitalWrite(POINT3, HIGH);
+  }
+  else if (pointcount == 2) {
+    digitalWrite(POINT1, HIGH);
+    digitalWrite(POINT2, HIGH);
+    digitalWrite(POINT3, LOW);
+  }
+  else if (pointcount == 1) {
+    digitalWrite(POINT1, HIGH);
+    digitalWrite(POINT2, LOW);
+    digitalWrite(POINT3, LOW);
+  }
+  else {
+    digitalWrite(POINT1, LOW);
+    digitalWrite(POINT2, LOW);
+    digitalWrite(POINT3, LOW);
   }
 }
 
@@ -107,18 +184,47 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(skip), skipISR, FALLING);
 
   // do NOT start timer yet
-  setAllLeds(false);
+  setTimerLEDs(false);
 
   //lifesetup
   pinMode(LIFE1, OUTPUT);
   pinMode(LIFE2, OUTPUT);
   pinMode(LIFE3, OUTPUT);
 
+  //point setup
+  pinMode(POINT1, OUTPUT);
+  pinMode(POINT2, OUTPUT);
+  pinMode(POINT3, OUTPUT);
+
   updateLives();
+  updatePoints();
 }
 
 void loop() {
   unsigned long now = millis();
+
+  if (gameOverActive) {
+    handleGameOverFlash();
+
+    // only reset button exits game over
+    if (resetGamePressed) {
+      resetGamePressed = false;
+
+      gameOverActive = false;
+      flashState = false;
+
+      // reset lives / points here
+      lifeCount = 3;
+      pointcount = 0;
+
+      updateLives();
+      updatePoints();
+
+      setTimerLEDs(false);   // countdown LEDs off until game restarts
+    }
+
+    return;
+  }
 
   // Start timer only when pin 13 button is pressed
   if (!timerStarted) {
@@ -130,7 +236,7 @@ void loop() {
       // wait for release so one press only starts once
       while (digitalRead(morse) == LOW) {
       }
-      }
+    }
     return;
   }
 
@@ -142,6 +248,8 @@ void loop() {
     Serial.println("Reset game pressed");
     lifeCount = 3;
     pointcount = 0;
+    updateLives();
+    updatePoints();
     resetGameTimer();
     return;
   }
@@ -183,10 +291,7 @@ void loop() {
     } 
     else {
       // 24s reached
-      setAllLeds(false);
-      digitalWrite(LED1, LOW);
-      digitalWrite(LED2, LOW);
-      digitalWrite(LED3, LOW);
+      setTimerLEDs(false);
       // delay(1000);
       phase = FAIL; //subsequently lose life here
       lifeCount--;
@@ -200,7 +305,6 @@ void loop() {
     // All LEDs OFF for 2s, then restart timer
     if (now - phaseStartMs >= time_out) {
       resetGameTimer();
-      
       return;
     }
   }
