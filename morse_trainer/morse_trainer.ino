@@ -8,6 +8,11 @@ const int LED1 = 4; // turns off at 8s
 const int LED2 = 5; // turns off at 16s
 const int LED3 = 6; // turns off at 24s
 
+// HEALTH PINS (RED LEDS)
+const int LIFE1 = 10;
+const int LIFE2 = 11;
+const int LIFE3 = 12;
+
 // INTERRUPT PINS
 /*
     - four buttons will go into pin 2 of the arduino through OR-gate output
@@ -39,6 +44,7 @@ const uint32_t wordTimeout = 24000; // 24 second word deadline
 const uint32_t displayHold = 2000; // 2 second message display
 const uint32_t debounceMs = 30;
 const uint32_t minPressMs = 20;
+const uint32_t flashInterval = 300; // ms between flashes on game over
 
 int buttonState;
 int lastButtonState = LOW;
@@ -76,6 +82,11 @@ const int STATE_GAME_OVER = 2;
 int gameState = STATE_PLAYING;
 char msgBuf[64];
 
+// game over flash state
+bool gameOverActive = false;
+bool flashState = false;
+uint32_t lastFlashTime = 0;
+
 // shuffle helper function
 void shuffleOrder(int order[], int count){
     for(int i = count - 1; i > 0; i--){
@@ -84,6 +95,127 @@ void shuffleOrder(int order[], int count){
         order[i] = order[j];
         order[j] = temp;
     }
+}
+
+// -------------------------------------
+// --------- HELPER FUNCTIONS ----------
+// -------------------------------------
+
+// ---- LED helpers ----
+void setTimerLEDs(bool on) {
+    digitalWrite(LED1, on ? HIGH : LOW);
+    digitalWrite(LED2, on ? HIGH : LOW);
+    digitalWrite(LED3, on ? HIGH : LOW);
+}
+
+void setLivesLEDs(bool on) {
+    digitalWrite(LIFE1, on ? HIGH : LOW);
+    digitalWrite(LIFE2, on ? HIGH : LOW);
+    digitalWrite(LIFE3, on ? HIGH : LOW);
+}
+
+void updateLives() {
+    if (lives >= 3) {
+        digitalWrite(LIFE1, HIGH);
+        digitalWrite(LIFE2, HIGH);
+        digitalWrite(LIFE3, HIGH);
+    } else if (lives == 2) {
+        digitalWrite(LIFE1, LOW);
+        digitalWrite(LIFE2, HIGH);
+        digitalWrite(LIFE3, HIGH);
+    } else if (lives == 1) {
+        digitalWrite(LIFE1, LOW);
+        digitalWrite(LIFE2, LOW);
+        digitalWrite(LIFE3, HIGH);
+    } else {
+        digitalWrite(LIFE1, LOW);
+        digitalWrite(LIFE2, LOW);
+        digitalWrite(LIFE3, LOW);
+    }
+}
+
+void handleGameOverFlash() {
+    if ((tickCount - lastFlashTime) >= flashInterval) {
+        lastFlashTime = tickCount;
+        flashState = !flashState;
+        setTimerLEDs(flashState);
+        setLivesLEDs(flashState);
+    }
+}
+
+void showMessage(const char* msg) {
+    strncpy(msgBuf, msg, sizeof(msgBuf) - 1);
+    msgBuf[sizeof(msgBuf) - 1] = '\0';
+    Serial.println(msgBuf);
+    msgStartTime = tickCount;
+    gameState = STATE_SHOW_MSG;
+}
+
+void updateLEDs() {
+    uint32_t elapsed = tickCount - wordStartTime;
+    // LED1 off at 8s, LED2 off at 16s, LED3 off at 24s
+    if (elapsed < 8000) {
+        digitalWrite(LED1, HIGH);
+        digitalWrite(LED2, HIGH);
+        digitalWrite(LED3, HIGH);
+    } else if (elapsed < 16000) {
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, HIGH);
+        digitalWrite(LED3, HIGH);
+    } else if (elapsed < 24000) {
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED3, HIGH);
+    }
+}
+
+void nextWord() {
+    if (currentLevel == beginner) {
+        targetWord = beginnerWords[beginnerOrder[beginnerPos % beginnerCount]];
+        beginnerPos++;
+    } else if (currentLevel == medium) {
+        targetWord = mediumWords[mediumOrder[mediumPos % mediumCount]];
+        mediumPos++;
+    } else if (currentLevel == hard) {
+        targetWord = hardWords[hardOrder[hardPos % hardCount]];
+        hardPos++;
+    }
+
+    wordStartTime = tickCount;
+    typedLen = 0;
+    typedWord[0] = '\0';
+    letterLen = 0;
+    letterBuf[0] = '\0';
+
+    // reset timer LEDs for new word
+    setTimerLEDs(true);
+
+    Serial.print("Target word: ");
+    Serial.println(targetWord);
+    Serial.print("Lives: ");
+    Serial.println(lives);
+}
+
+void resetGame() {
+    lives = 3;
+    correctCount = 0;
+    currentLevel = beginner;
+    beginnerPos = 0;
+    mediumPos = 0;
+    hardPos = 0;
+    gameOverActive = false;
+    flashState = false;
+    gameState = STATE_PLAYING;
+    targetWord = nullptr;
+
+    shuffleOrder(beginnerOrder, beginnerCount);
+    shuffleOrder(mediumOrder, mediumCount);
+    shuffleOrder(hardOrder, hardCount);
+
+    updateLives();
+    setTimerLEDs(false);
+
+    Serial.println("Game reset!");
 }
 
 void setup() {
@@ -110,11 +242,32 @@ void setup() {
     }
 
     // shuffle order arrays
+    randomSeed(analogRead(A5));
     shuffleOrder(beginnerOrder, beginnerCount);
     shuffleOrder(mediumOrder, mediumCount);
     shuffleOrder(hardOrder, hardCount);
 
-    noInterrupts(); // disable interrupts during setup
+    // set up pins
+    pinMode(morseInput, INPUT);
+    pinMode(intPin, INPUT);
+    pinMode(nextLevelButton, INPUT);
+    pinMode(backLevelButton, INPUT);
+    pinMode(resetButton, INPUT);
+    pinMode(skipWordButton, INPUT);
+
+    // led pins
+    pinMode(LED1, OUTPUT);
+    pinMode(LED2, OUTPUT);
+    pinMode(LED3, OUTPUT);
+    pinMode(LIFE1, OUTPUT);
+    pinMode(LIFE2, OUTPUT);
+    pinMode(LIFE3, OUTPUT);
+
+    // timer LEDs off until game starts
+    setTimerLEDs(false);
+    updateLives();
+
+    cli(); // disables the arduino timers
     
     // reset timer2 registers to 0
     TCCR2A = 0;
@@ -132,10 +285,10 @@ void setup() {
     // enable timer2 compare match
     TIMSK2 |= (1 << OCIE2A);
 
-    interrupts(); // enable interrupts
+    // attach interrupt to pin 2, fires on the button
+    attachInterrupt(digitalPinToInterrupt(intPin), gameButtonISR, CHANGE);
 
-    // set up button pin
-    pinMode(buttonPin, INPUT);
+    sei(); // enable timer
 }
 
 // ISR function for timer
