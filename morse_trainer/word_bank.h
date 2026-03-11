@@ -58,7 +58,10 @@ const char* hardWords[] = {
     "SWORD",
     "STORM",
     "ARROW",
-    "TORCH"
+    "TORCH",
+    "FIRES",
+    "CAMPS",
+    "TREAD"
 };
 
 const int hardCount = sizeof(hardWords) / sizeof(hardWords[0]);
