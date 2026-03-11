@@ -231,13 +231,13 @@ void setup() {
     typedWord[0] = '\0';
 
     // fill order arrays
-    for(int i = 0; i < beginnerCount; i++){
+    for (int i = 0; i < beginnerCount; i++) {
         beginnerOrder[i] = i;
     }
-    for(int i = 0; i < mediumCount; i++){
+    for (int i = 0; i < mediumCount; i++) {
         mediumOrder[i] = i;
     }
-    for(int i = 0; i < hardCount; i++){
+    for (int i = 0; i < hardCount; i++) {
         hardOrder[i] = i;
     }
 
@@ -291,123 +291,133 @@ void setup() {
     sei(); // enable timer
 }
 
-// ISR function for timer
+// ISR function for timer2 (fire every 1 ms)
 ISR(TIMER2_COMPA_vect) {
-    tickCount++;
+    tickCount++; // number of milliseconds since program started
+}
+
+// ISR for OR-gated game buttons on pin 2
+// read individual sense pins to identify which button triggered the interrupt
+void gameButtonISR() {
+    uint32_t now = tickCount;
+
+    // debounce: ignore edges too close together
+    if ((now - lastEdgeTime) < debounceMs) {
+        return;
+    }
+    lastEdgeTime = now;
+
+    // only act on rising edge (button pressed down)
+    if (digitalRead(intPin) == LOW) {
+        return;
+    }
+
+    // identify which button by reading individual sense pins
+    if (digitalRead(nextLevelButton)) {
+        gameButtonId = 1;
+    } else if (digitalRead(backLevelButton)) {
+        gameButtonId = 2;
+    } else if (digitalRead(resetButton)) {
+        gameButtonId = 3;
+    } else if (digitalRead(skipWordButton)) {
+        gameButtonId = 4;
+    }
+
+    gameButtonEvent = true;
 }
 
 void loop() {
-    // read current button state
-    buttonState = digitalRead(buttonPin);
 
-    // start beginner level
+    // GAME OVER: flash timer and lives LEDs until reset button is pressed
+    if (gameOverActive) {
+        handleGameOverFlash();
+
+        if (gameButtonEvent && gameButtonId == 3) {
+            gameButtonEvent = false;
+            resetGame();
+        }
+        return;
+    }
+
+    // FAIL STATE: all LEDs off briefly after timeout, then next word presented
+    if (gameState == STATE_FAIL) {
+        if ((tickCount - failStartTime) >= failHold) {
+            gameState = STATE_PLAYING;
+            nextWord();
+        }
+        return;
+    }
+
+    // SHOW MESSAGE: hold for displayHold ms then resume
+    if (gameState == STATE_SHOW_MSG) {
+        if ((tickCount - msgStartTime) >= displayHold) {
+            if (lives <= 0) {
+                gameOverActive = true;
+                flashState = true;
+                lastFlashTime = tickCount;
+                setTimerLEDs(false);
+                Serial.println("GAME OVER!");
+                return;
+            }
+            gameState = STATE_PLAYING;
+            nextWord();
+        }
+        return;
+    }
+
+    // PLAYING GAME:
+
+    // start beginner level on first run
     if (currentLevel == beginner && targetWord == nullptr) {
-        targetWord = beginnerWords[beginnerOrder[beginnerPos]];
-        beginnerPos++;
-        Serial.print("Target word: ");
-        Serial.println(targetWord);
+        nextWord();
     }
 
-    // gap condition (nothing being pressed to insert new letter)
-    if(buttonState == LOW && letterLen > 0 && (tickCount - lastRelease) >= gapThreshold){
-        char decoded = decodeMorse(letterBuf);
-        
-        if (typedLen < (int)sizeof(typedWord) - 1) {
-            typedWord[typedLen++] = decoded;
-            typedWord[typedLen] = '\0';
-        }
+    // handle game button events from ISR
+    if (gameButtonEvent) {
+        gameButtonEvent = false;
 
-        Serial.print("Decoded: ");
-        Serial.println(decoded);
-
-        // check if word is complete and correct
-        if (strcmp(typedWord, targetWord) == 0) {
-            correctCount++;
-            Serial.print("Correct! Number of Correct Words: ");
-            Serial.println(correctCount);
-
-            if (correctCount >= 3) {
-                // advance to next level
-                if (currentLevel == beginner) {
-                    currentLevel = medium;
-                    correctCount = 0;
-                    Serial.println("Congrats! Player advanced to MEDIUM!");
-                } else if (currentLevel == medium) {
-                    currentLevel = hard;
-                    correctCount = 0;
-                    Serial.println("Congrats! Player advanced to HARD!");
-                }
+        if (gameButtonId == 1) {
+            // nextLevelButton - advance level
+            if (currentLevel < hard) {
+                currentLevel++;
+                correctCount = 0;
+                Serial.print("Level advanced to: ");
+                Serial.println(currentLevel);
+                nextWord();
+            } else {
+                Serial.println("Already at hardest level!");
             }
 
-            // get next word
-            if (currentLevel == beginner) {
-                targetWord = beginnerWords[beginnerOrder[beginnerPos % beginnerCount]];
-                beginnerPos++;
-            } else if (currentLevel == medium) {
-                targetWord = mediumWords[mediumOrder[mediumPos % mediumCount]];
-                mediumPos++;
-            } else if (currentLevel == hard) {
-                targetWord = hardWords[hardOrder[hardPos % hardCount]];
-                hardPos++;
+        } else if (gameButtonId == 2) {
+            // backLevelButton - go back a level
+            if (currentLevel > beginner) {
+                currentLevel--;
+                correctCount = 0;
+                Serial.print("Level back to: ");
+                Serial.println(currentLevel);
+                nextWord();
+            } else {
+                Serial.println("Already at easiest level!");
             }
 
-            typedLen = 0;
-            typedWord[0] = '\0';
-        }
+        } else if (gameButtonId == 3) {
+            // resetButton - reset entire game
+            resetGame();
 
-        // clear buffer for next letter
-        letterLen = 0;
-        letterBuf[0] = '\0';
-    }
-
-    // if button is turned on
-    if (lastButtonState == LOW && buttonState == HIGH) {
-        uint32_t now = tickCount;
-        if (now - lastEdgeTime >= debounceMs) {
-        lastEdgeTime = now;
-        pressStart = now;
+        } else if (gameButtonId == 4) {
+            // skipWordButton - skip current word, lose a life
+            lives--;
+            updateLives();
+            Serial.print("Word skipped! Lives remaining: ");
+            Serial.println(lives);
+            showMessage(lives <= 0 ? "GAME OVER!" : "Word skipped!");
         }
     }
 
-    // if button is turned off
-    if(lastButtonState==HIGH && buttonState==LOW){
-        uint32_t now = tickCount;
-    if (now - lastEdgeTime >= debounceMs) {
-      lastEdgeTime = now;
+    // update timer LEDs based on elasped time
+    updateLEDs();
 
-      uint32_t duration = now - pressStart;
+    // read current button state
+    buttonState = digitalRead(morseInput);
 
-      // ignore very short taps/outside world noise
-      if (duration >= minPressMs) {
-        char symbol = (duration < dotDashThreshold) ? '.' : '-';
-
-        // append to buffer
-        if (letterLen < (int)sizeof(letterBuf) - 1) {
-          letterBuf[letterLen++] = symbol;
-          letterBuf[letterLen] = '\0';
-        }
-
-        lastRelease = now;
-
-        // test prints
-        Serial.print("Symbol: ");
-        Serial.println(symbol);
-        Serial.print("Current buffer: ");
-        Serial.println(letterBuf);
-      }
-    }
-  }
-  lastButtonState = buttonState; // update the last button state
-
-  // gap condition (nothing being pressed to insert new letter)
-  if(buttonState == LOW && letterLen > 0 && (tickCount - lastRelease) >= gapThreshold){
-    char decoded = decodeMorse(letterBuf);
-
-    Serial.print("Decoded: ");
-    Serial.println(decoded);
-
-    // clear buffer for next letter
-    letterLen = 0;
-    letterBuf[0] = '\0';
-   }
 }
