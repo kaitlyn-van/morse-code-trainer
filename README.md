@@ -84,5 +84,5 @@ morse_trainer/
 - `gameButtonISR()` reads individual sense pins to identify which button fired
 - Timer2 ISR increments `tickCount` every 1ms
 
-## 👩‍💻 Authours
+## 👩‍💻 Authors
 Kaitlyn Van and Natasha Poon
