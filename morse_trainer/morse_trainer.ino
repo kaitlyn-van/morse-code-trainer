@@ -9,15 +9,13 @@ const int LED2 = 5; // turns off at 16s
 const int LED3 = 6; // turns off at 24s
 
 // HEALTH PINS (RED LEDS)
-const int LIFE1 = 10;
-const int LIFE2 = 11;
-const int LIFE3 = 12;
+const int LIFE1 = 11;
+const int LIFE2 = 12;
+const int LIFE3 = A0;
 
 // INTERRUPT PINS
-/*
-    - four buttons will go into pin 2 of the arduino through OR-gate output
-    - read inside ISR to identify which button is fired
-*/
+//    - four buttons will go into pin 2 of the arduino through OR-gate output
+//    - read inside ISR to identify which button is fired
 
 const int intPin = 2; // OR-gate output of all 4 game buttons
 const int nextLevelButton = 7; // button to advance to next difficulty level
@@ -37,11 +35,13 @@ uint32_t pressStart;
 uint32_t lastRelease;
 uint32_t wordStartTime = 0;
 uint32_t msgStartTime = 0;
+uint32_t failStartTime = 0;
 
 const int dotDashThreshold = 200; // 200 ms
 const int gapThreshold = 800; // 800 ms silence -> commit letter
 const uint32_t wordTimeout = 24000; // 24 second word deadline
 const uint32_t displayHold = 2000; // 2 second message display
+const uint32_t failHold = 1000;
 const uint32_t debounceMs = 30;
 const uint32_t minPressMs = 20;
 const uint32_t flashInterval = 300; // ms between flashes on game over
@@ -78,7 +78,8 @@ const int wordsToAdvance = 3;
 // state machine
 const int STATE_PLAYING  = 0;
 const int STATE_SHOW_MSG = 1;
-const int STATE_GAME_OVER = 2;
+const int STATE_FAIL = 2;
+const int STATE_GAME_OVER = 3;
 int gameState = STATE_PLAYING;
 char msgBuf[64];
 
@@ -86,6 +87,9 @@ char msgBuf[64];
 bool gameOverActive = false;
 bool flashState = false;
 uint32_t lastFlashTime = 0;
+
+// game start
+bool gameStarted = false;
 
 // shuffle helper function
 void shuffleOrder(int order[], int count){
@@ -205,6 +209,7 @@ void resetGame() {
     hardPos = 0;
     gameOverActive = false;
     flashState = false;
+    gameStarted = false; // require morse button press to restart
     gameState = STATE_PLAYING;
     targetWord = nullptr;
 
@@ -215,7 +220,7 @@ void resetGame() {
     updateLives();
     setTimerLEDs(false);
 
-    Serial.println("Game reset!");
+    Serial.println("Game reset! Press morse button to start.");
 }
 
 void setup() {
@@ -267,6 +272,8 @@ void setup() {
     setTimerLEDs(false);
     updateLives();
 
+    Serial.println("Press morse button to start!");
+
     cli(); // disables the arduino timers
     
     // reset timer2 registers to 0
@@ -285,10 +292,10 @@ void setup() {
     // enable timer2 compare match
     TIMSK2 |= (1 << OCIE2A);
 
+    sei(); // enable timer
+
     // attach interrupt to pin 2, fires on the button
     attachInterrupt(digitalPinToInterrupt(intPin), gameButtonISR, CHANGE);
-
-    sei(); // enable timer
 }
 
 // ISR function for timer2 (fire every 1 ms)
@@ -328,6 +335,18 @@ void gameButtonISR() {
 
 void loop() {
 
+    // GAME START: press morse button to begin
+    if (!gameStarted) {
+        if (digitalRead(morseInput) == HIGH) {
+            gameStarted = true;
+            Serial.println("Game started!");
+            nextWord();
+            // wait for release so the press doesn't count as a morse symbol
+            while (digitalRead(morseInput) == HIGH) {}
+        }
+        return;
+    }
+    
     // GAME OVER: flash timer and lives LEDs until reset button is pressed
     if (gameOverActive) {
         handleGameOverFlash();
@@ -381,20 +400,20 @@ void loop() {
             if (currentLevel < hard) {
                 currentLevel++;
                 correctCount = 0;
-                Serial.print("Level advanced to: ");
-                Serial.println(currentLevel);
+                if (currentLevel == medium) Serial.println("Level advanced to: MEDIUM!");
+                else if (currentLevel == hard) Serial.println("Level advanced to: HARD!");
                 nextWord();
             } else {
                 Serial.println("Already at hardest level!");
             }
 
         } else if (gameButtonId == 2) {
-            // backLevelButton - go back a level
+        // backLevelButton - go back a level
             if (currentLevel > beginner) {
                 currentLevel--;
                 correctCount = 0;
-                Serial.print("Level back to: ");
-                Serial.println(currentLevel);
+                if (currentLevel == beginner) Serial.println("Level back to: BEGINNER!");
+                else if (currentLevel == medium) Serial.println("Level back to: MEDIUM!");
                 nextWord();
             } else {
                 Serial.println("Already at easiest level!");
@@ -420,4 +439,120 @@ void loop() {
     // read current button state
     buttonState = digitalRead(morseInput);
 
+    // morse button being pressed
+    if (lastButtonState == LOW && buttonState == HIGH) {
+        pressStart = tickCount;
+    }
+
+    // morse button released
+    if (lastButtonState == HIGH && buttonState == LOW) {
+        uint32_t duration = tickCount - pressStart;
+
+        // ignore very short taps
+        if (duration >= minPressMs) {
+            symbol = (duration < dotDashThreshold) ? '.' : '-';
+
+            // append to buffer
+            if (letterLen < (int)sizeof(letterBuf) - 1) {
+                letterBuf[letterLen++] = symbol;
+                letterBuf[letterLen] = '\0';
+            }
+
+            lastRelease = tickCount;
+
+            // test prints
+            Serial.print("Symbol: ");
+            Serial.println(symbol);
+            Serial.print("Current buffer: ");
+            Serial.println(letterBuf);
+        }
+    }
+
+    lastButtonState = buttonState; // update last button state
+
+    // gap condition (nothing being pressed -> commit letter)
+    if (buttonState == LOW && letterLen > 0 && (tickCount - lastRelease) >= gapThreshold) {
+        char decoded = decodeMorse(letterBuf);
+
+        if (typedLen < (int)sizeof(typedWord) - 1) {
+            typedWord[typedLen++] = decoded;
+            typedWord[typedLen] = '\0';
+        }
+
+        Serial.print("Decoded: ");
+        Serial.println(decoded);
+
+        Serial.print("Word so far: ");
+        Serial.println(typedWord);
+
+        // clear buffer for next letter
+        letterLen = 0;
+        letterBuf[0] = '\0';
+
+        // check if word is complete
+        if (typedLen == (int)strlen(targetWord)) {
+            if (strcmp(typedWord, targetWord) == 0) {
+                // correct word
+                correctCount++;
+                Serial.print("Correct! Number of Correct Words: ");
+                Serial.println(correctCount);
+
+                if (correctCount >= wordsToAdvance) {
+                    correctCount = 0;
+                    if (currentLevel == beginner) {
+                        currentLevel = medium;
+                        showMessage("Congrats! Player advanced to MEDIUM!");
+                    } else if (currentLevel == medium) {
+                        currentLevel = hard;
+                        showMessage("Congrats! Player advanced to HARD!");
+                    } else {
+                        // won the game
+                        gameOverActive = true;
+                        flashState = true;
+                        lastFlashTime = tickCount;
+                        Serial.println("YOU WIN! All levels cleared!");
+                    }
+                } else {
+                    showMessage("Correct!");
+                }
+
+            } else {
+                // wrong word
+                lives--;
+                updateLives();
+                Serial.print("Wrong! Typed: ");
+                Serial.print(typedWord);
+                Serial.print(" Target: ");
+                Serial.println(targetWord);
+                Serial.print("Lives remaining: ");
+                Serial.println(lives);
+
+                showMessage(lives <= 0 ? "GAME OVER!" : "Wrong word! Try again.");
+            }
+
+            typedLen = 0;
+            typedWord[0] = '\0';
+        }
+    }
+
+    // word timeout - 24 seconds
+    if ((tickCount - wordStartTime) >= wordTimeout) {
+        lives--;
+        updateLives();
+        Serial.print("Time's up! Lives remaining: ");
+        Serial.println(lives);
+
+        if (lives <= 0) {
+            gameOverActive = true;
+            flashState = true;
+            lastFlashTime = tickCount;
+            setTimerLEDs(false);
+            Serial.println("GAME OVER!");
+        } else {
+            // enter fail state - all LEDs off briefly before next word
+            setTimerLEDs(false);
+            failStartTime = tickCount;
+            gameState = STATE_FAIL;
+        }
+    }
 }
