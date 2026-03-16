@@ -12,15 +12,17 @@ An Arduino-based interactive game that teaches players to input Morse code using
 6. Input each letter using dots (short press) and dashes (long press)
 7. Pause for 800ms between letters to commit them
 8. Get 3 words correct to advance to the next level 🏆
-9. You have 3 lives — lose one for each wrong word, skip, or timeout 💀
+9. You have 3 lives — lose one for each wrong word, skip, or timeout
+
+> 💡 New to Morse code? Check out the [Morse Code Reference](MORSE_REFERENCE.md)!
 
 ## 📶 Difficulty Levels
 
 | Level | Words to Advance |
 |-------|-----------------|
-| 🟢 Beginner | 3 |
-| 🟡 Medium | 3 |
-| 🔴 Hard | 3 |
+| 🟢 Beginner (3 letters) | 3 |
+| 🟡 Medium (4 letters) | 3 |
+| 🔴 Hard (5 letters) | 3 |
 
 ## 📌 Pin Configuration
 
@@ -56,6 +58,8 @@ An Arduino-based interactive game that teaches players to input Morse code using
 - 1x OR gate chip (74HC32) to combine game buttons into pin 2
 - Pull-down resistors (10kΩ) on each button input
 
+> 💡 **Note:** All 4 game buttons feed into a 74HC32 OR gate. The OR gate output connects to pin 2. Each button also has its own direct sense line to pins 7–10 so the ISR can identify which button was pressed.
+
 ## 📁 File Structure
 ```
 morse_trainer/
@@ -77,7 +81,9 @@ morse_trainer/
 - Inter-letter gap detection (800ms silence)
 - 24-second word countdown
 - Message display hold (2 seconds)
+  - Freezes game for 2 seconds so player can read feedback, then loads next word
 - Fail state pause (1 second)
+  - All timer LEDs turn off for 1 second to signal time's up, then loads next word
 
 ### ⚡ Interrupts
 - All 4 game buttons are OR-gated into a single interrupt pin (pin 2 / INT0)
