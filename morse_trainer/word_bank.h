@@ -24,7 +24,10 @@ const char* beginnerWords[] = {
     "LOG",
     "SKY",
     "OWL",
-    "BOW"
+    "BOW",
+    "ICE",
+    "AIR",
+    "RUN"
 };
 
 // store count of beginner words (allow for update if words are added/removed)
@@ -45,7 +48,18 @@ const char* mediumWords[] = {
     "GEAR",
     "HEAT",
     "SNOW",
-    "RAIN"
+    "RAIN",
+    "WOOD",
+    "ROPE",
+    "BURN",
+    "COOK",
+    "SEEK",
+    "HIDE",
+    "RAFT",
+    "COLD",
+    "WIND",
+    "DUSK",
+    "DAWN"
 };
 
 const int mediumCount = sizeof(mediumWords) / sizeof(mediumWords[0]);
@@ -61,7 +75,14 @@ const char* hardWords[] = {
     "TORCH",
     "FIRES",
     "CAMPS",
-    "TREAD"
+    "TREAD",
+    "FLINT",
+    "SMOKE",
+    "TRACK",
+    "SCOUT",
+    "REACH",
+    "ALERT",
+    "BRAVE"
 };
 
 const int hardCount = sizeof(hardWords) / sizeof(hardWords[0]);
